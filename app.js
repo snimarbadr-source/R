@@ -35,7 +35,7 @@
   const mState = $('mState');
 
   const LOCS = ['لوس','ساندي','بوليتو'];
-  // تم التثبيت النهائي لاسم الحالة
+  // 💡 تم توحيد اسم الحالة
   const STATES = ['في الميدان','مشغول - اختبار','مشغول - تدريب','خارج الخدمة'];
 
   let rows = []; // {id,name,code,loc,state}
@@ -49,7 +49,6 @@
     bar.style.setProperty('--w', v + '%');
   }
 
-  // دعم الأكواد الحرفية (DA1) والرقمية (115)
   function sanitizeCode(s){
     // فقط للحروف والأرقام
     return (s||'').toString().toUpperCase().replace(/[^A-Z0-9-]/g,'').replace(/-+/g,'-').trim();
@@ -62,12 +61,11 @@
       .replace(/\d+/g,' ')
       .replace(/\s+/g,' ')
       .trim();
-    // keep arabic letters and spaces
     const only = t.replace(/[^\u0600-\u06FF\s]/g,' ').replace(/\s+/g,' ').trim();
     return only || t;
   }
 
-  // استخراج الكود: DA1-999 أو رقم 2-4 خانات (115, 311)
+  // 💡 تم تحديث هذه الدالة لدعم الأكواد الرقمية (115, 311) والأكواد الحرفية (DA1)
   function bestCodeFromString(text){
     const s = (text||'').toString().toUpperCase().replace(/\s+/g,'');
     
@@ -75,7 +73,7 @@
     const mAlpha = s.match(/\b(DS|DA|AD|D|N|C|T|V|A)-?\d{1,3}\b/);
     if (mAlpha) return mAlpha[0].replace('-', '');
     
-    // 2. مطابقة الأكواد الرقمية (115, 311, etc. - من 2 إلى 4 خانات)
+    // 2. مطابقة الأكواد الرقمية (115, 311, 406 - من 2 إلى 4 خانات)
     const mDigit = s.match(/\b\d{2,4}\b/);
     if (mDigit) return mDigit[0];
     
@@ -86,27 +84,28 @@
     const out=[];
     const lines = (text||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
     for (const ln of lines){
-      const parts = ln.split('|').map(x=>x.trim()).filter(Boolean);
       let name='', code='';
       
-      // إذا كان يوجد فاصل صريح (|)
+      // المحاولة الأولى: فصل الكود والاسم بشكل صريح بـ |
+      const parts = ln.split('|').map(x=>x.trim()).filter(Boolean);
       if (parts.length>=2){
         name = sanitizeArabicName(parts[0]);
         code = bestCodeFromString(parts[1]) || sanitizeCode(parts[1]);
-      } else {
-        // إذا لم يوجد فاصل، نحاول استخراج الكود من السطر كله
+      } 
+      
+      // المحاولة الثانية: استخراج الكود من السطر كاملاً
+      if (!code) {
         code = bestCodeFromString(ln) || sanitizeCode(ln);
-        
-        // إذا وجدنا الكود، نحذف الكود من السطر ليبقى الاسم
-        if (code) {
-          name = sanitizeArabicName(ln.replace(new RegExp(code, 'i'), ' '));
-        } else {
-          // إذا لم نجد كوداً ذا معنى، تجاهل السطر
-          continue;
-        }
       }
       
-      // إزالة الكود من الاسم في حال التلاصق
+      // إذا وجدنا الكود، نحذف الكود من السطر ليبقى الاسم
+      if (code) {
+        name = sanitizeArabicName(ln.replace(new RegExp(code, 'i'), ' '));
+      } else {
+        continue; // تجاهل السطر إذا لم نجد كوداً ذا معنى
+      }
+      
+      // تنظيف الاسم مرة أخرى
       if (name.toUpperCase().includes(code.toUpperCase())) {
           name = sanitizeArabicName(name.replace(new RegExp(code, "i"), " "));
       }
@@ -118,6 +117,7 @@
   }
 
   function upsertRow(r){
+    // استخدام bestCodeFromString لتحديد الكود الأساسي للمقارنة
     const code = bestCodeFromString(r.code) || sanitizeCode(r.code);
     const name = sanitizeArabicName(r.name);
     if (!code || !name) return;
@@ -159,6 +159,7 @@
     let cls = 'field';
     if (s === 'مشغول - اختبار') cls = 'busy1';
     else if (s === 'مشغول - تدريب') cls = 'busy2';
+    // 💡 تم التوحيد هنا
     else if (s === 'خارج الخدمة') cls = 'out';
     return `<span class="pill ${cls}">${s}</span>`;
   }
@@ -203,7 +204,7 @@
       'ساندي': rows.filter(r=>r.loc==='ساندي' && r.state!=='خارج الخدمة'),
       'بوليتو': rows.filter(r=>r.loc==='بوليتو' && r.state!=='خارج الخدمة'),
     };
-    const outOfService = rows.filter(r=>r.state==='خارج الخدمة');
+    const outOfService = rows.filter(r=>r.state==='خارج الخدمة'); // 💡 تم التوحيد هنا
 
     const lines = [];
     lines.push('📌 استلام العمليات 📌\n');
@@ -267,21 +268,24 @@
   async function ensureWorker(){
     if (workerPromise) return workerPromise;
     workerPromise = (async ()=>{
+      // Load tesseract from CDN
       await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
       const { createWorker } = window.Tesseract || {};
       if (!createWorker) throw new Error('Tesseract not loaded');
       
       const w = await createWorker('ara+eng', 1, { 
+        // تثبيت مصدر الملفات لـ CDN لمنع مشكلات الـ Path
         langPath: 'https://unpkg.com/tesseract.js-lang@5/tessdata',
         logger: m => {
           if (m?.progress != null) setProgress(m.progress*100);
         }
       });
       
+      // 💡 إعدادات OCR محسنة للقوائم
       await w.setParameters({
           tessedit_pageseg_mode: "6", // P_L_SINGLE_BLOCK
           preserve_interword_spaces: "1",
-          tessedit_char_blacklist: '[]{}()', // حظر بعض الرموز المزعجة
+          tessedit_char_blacklist: '[]{}()', 
       });
       return w;
     })();
@@ -310,7 +314,6 @@
       });
   }
   
-  // وظيفة عرض المعاينة (ضرورية)
   function drawPreviewFromImage(img){
     const ctx = previewCanvas.getContext('2d');
     const maxW = previewCanvas.clientWidth || 600;
@@ -322,34 +325,22 @@
     ctx.drawImage(img,0,0,previewCanvas.width,previewCanvas.height);
   }
   
-  function imageToCanvas(img) {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      return canvas;
-  }
-  
   function clearPreview(){
     const ctx = previewCanvas.getContext('2d');
     ctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
     setProgress(0);
   }
 
-// الوظيفة التي تمثل قلب المشكلة وتم تصحيحها لضمان التوزيع والعرض
 async function runOCRFromFile(file){
     try{
       setProgress(0);
       
       const img = await fileToImage(file);
-      drawPreviewFromImage(img); // 💡 المعاينة تتم هنا
+      drawPreviewFromImage(img); 
 
-      let canvasToProcess = imageToCanvas(img);
-      
       const w = await ensureWorker();
       
-      const { data } = await w.recognize(canvasToProcess);
+      const { data } = await w.recognize(img); // استخدام كائن الصورة مباشرة
       
       const raw = (data?.text || '').trim();
       const cleaned = raw.replace(/\s+\|\s+/g,' | ');
@@ -363,9 +354,10 @@ async function runOCRFromFile(file){
         return;
       }
       
+      // عرض النص المستخرج في صندوق النص
       textInput.value = pairs.map(p=>`${p.name} | ${p.code}`).join('\n');
       
-      // 💡 التوزيع يتم هنا
+      // دمج وتوزيع الوحدات على الجدول
       pairs.forEach(upsertRow);
       renderRows(); 
       
@@ -443,6 +435,7 @@ async function runOCRFromFile(file){
     const row = rows.find(r=>r.id===id);
     if (!row) return;
     if (act==='loc') row.loc = LOCS.includes(el.value)? el.value : 'لوس';
+    // 💡 تم التوحيد هنا
     if (act==='state') row.state = STATES.includes(el.value)? el.value : 'في الميدان';
     renderRows();
   });
