@@ -35,7 +35,7 @@
   const mState = $('mState');
 
   const LOCS = ['لوس','ساندي','بوليتو'];
-  // 💡 تم توحيد اسم الحالة
+  // 💡 تم توحيد اسم الحالة إلى "خارج الخدمة"
   const STATES = ['في الميدان','مشغول - اختبار','مشغول - تدريب','خارج الخدمة'];
 
   let rows = []; // {id,name,code,loc,state}
@@ -61,11 +61,12 @@
       .replace(/\d+/g,' ')
       .replace(/\s+/g,' ')
       .trim();
+    // keep arabic letters and spaces
     const only = t.replace(/[^\u0600-\u06FF\s]/g,' ').replace(/\s+/g,' ').trim();
     return only || t;
   }
 
-  // 💡 تم تحديث هذه الدالة لدعم الأكواد الرقمية (115, 311) والأكواد الحرفية (DA1)
+  // 💡 تم تحديث هذه الدالة لدعم الأكواد الرقمية (115, 311) والأكواد الحرفية (DA1) معًا
   function bestCodeFromString(text){
     const s = (text||'').toString().toUpperCase().replace(/\s+/g,'');
     
@@ -90,19 +91,24 @@
       const parts = ln.split('|').map(x=>x.trim()).filter(Boolean);
       if (parts.length>=2){
         name = sanitizeArabicName(parts[0]);
-        code = bestCodeFromString(parts[1]) || sanitizeCode(parts[1]);
+        // استخدام bestCodeFromString لتوحيد استخراج الكود
+        code = bestCodeFromString(parts[1]) || sanitizeCode(parts[1]); 
       } 
       
-      // المحاولة الثانية: استخراج الكود من السطر كاملاً
+      // المحاولة الثانية: استخراج الكود من السطر كاملاً (وهذا هو المهم لحل مشكلة التوزيع)
       if (!code) {
-        code = bestCodeFromString(ln) || sanitizeCode(ln);
+        code = bestCodeFromString(ln); // ابحث عن كود رقمي/حرفي قوي أولاً
       }
       
       // إذا وجدنا الكود، نحذف الكود من السطر ليبقى الاسم
       if (code) {
+        // نستخدم RegExp لضمان حذف الكود حتى لو كان ملتصقاً
         name = sanitizeArabicName(ln.replace(new RegExp(code, 'i'), ' '));
       } else {
-        continue; // تجاهل السطر إذا لم نجد كوداً ذا معنى
+        // إذا لم نجد كوداً ذا معنى (رقمي أو حرفي)، نجرب الكود الخام
+        code = sanitizeCode(ln.split(' ').pop()); 
+        name = sanitizeArabicName(ln.replace(new RegExp(code, 'i'), ' '));
+        if (!bestCodeFromString(code)) continue; // نرفض إذا لم يكن الكود المستخلص خامًا ذا معنى
       }
       
       // تنظيف الاسم مرة أخرى
@@ -122,6 +128,7 @@
     const name = sanitizeArabicName(r.name);
     if (!code || !name) return;
     
+    // المقارنة بالكود الموحد فقط
     const idx = rows.findIndex(x => bestCodeFromString(x.code) === bestCodeFromString(code));
     
     const item = { 
@@ -129,6 +136,7 @@
         name, 
         code, 
         loc: LOCS.includes(r.loc)? r.loc:'لوس', 
+        // 💡 تم التوحيد هنا
         state: STATES.includes(r.state)? r.state:'في الميدان' 
     };
     
@@ -244,6 +252,7 @@
       await navigator.clipboard.writeText(text);
       toast('تم النسخ');
     }catch{
+      // fallback
       const ta = document.createElement('textarea');
       ta.value = text;
       document.body.appendChild(ta);
@@ -255,6 +264,7 @@
   }
 
   function toast(msg){
+    // minimal toast
     const el = document.createElement('div');
     el.textContent = msg;
     el.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,.75);color:#fff;padding:10px 12px;border-radius:12px;z-index:99;font-weight:800';
@@ -277,6 +287,7 @@
         // تثبيت مصدر الملفات لـ CDN لمنع مشكلات الـ Path
         langPath: 'https://unpkg.com/tesseract.js-lang@5/tessdata',
         logger: m => {
+          // 💡 تصحيح شريط التقدم: يتم التحديث بناءً على progress فقط
           if (m?.progress != null) setProgress(m.progress*100);
         }
       });
