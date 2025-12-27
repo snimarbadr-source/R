@@ -35,6 +35,7 @@
   const mState = $('mState');
 
   const LOCS = ['لوس','ساندي','بوليتو'];
+  // تم التثبيت النهائي لاسم الحالة
   const STATES = ['في الميدان','مشغول - اختبار','مشغول - تدريب','خارج الخدمة'];
 
   let rows = []; // {id,name,code,loc,state}
@@ -117,21 +118,18 @@
   }
 
   function upsertRow(r){
-    // استخدام bestCodeFromString لتحديد الكود الأساسي
     const code = bestCodeFromString(r.code) || sanitizeCode(r.code);
     const name = sanitizeArabicName(r.name);
     if (!code || !name) return;
     
-    // البحث عن الأسطر بالكود النظيف
     const idx = rows.findIndex(x => bestCodeFromString(x.code) === bestCodeFromString(code));
     
-    // تثبيت الحالة الافتراضية
     const item = { 
         id: r.id || uid(), 
         name, 
         code, 
         loc: LOCS.includes(r.loc)? r.loc:'لوس', 
-        state: STATES.includes(r.state)? r.state:'في الميدان' // تم التثبيت
+        state: STATES.includes(r.state)? r.state:'في الميدان' 
     };
     
     if (idx>=0) rows[idx] = { ...rows[idx], ...item };
@@ -161,7 +159,6 @@
     let cls = 'field';
     if (s === 'مشغول - اختبار') cls = 'busy1';
     else if (s === 'مشغول - تدريب') cls = 'busy2';
-    // تثبيت اسم الحالة في الـ Pill
     else if (s === 'خارج الخدمة') cls = 'out';
     return `<span class="pill ${cls}">${s}</span>`;
   }
@@ -246,7 +243,6 @@
       await navigator.clipboard.writeText(text);
       toast('تم النسخ');
     }catch{
-      // fallback
       const ta = document.createElement('textarea');
       ta.value = text;
       document.body.appendChild(ta);
@@ -258,7 +254,6 @@
   }
 
   function toast(msg){
-    // minimal toast
     const el = document.createElement('div');
     el.textContent = msg;
     el.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,.75);color:#fff;padding:10px 12px;border-radius:12px;z-index:99;font-weight:800';
@@ -266,26 +261,23 @@
     setTimeout(()=>{ el.remove(); }, 1200);
   }
 
-  // OCR (tesseract.js) - optional, loads only when needed
+  // OCR (tesseract.js)
   let workerPromise = null;
 
   async function ensureWorker(){
     if (workerPromise) return workerPromise;
     workerPromise = (async ()=>{
-      // Load tesseract from CDN
       await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
       const { createWorker } = window.Tesseract || {};
       if (!createWorker) throw new Error('Tesseract not loaded');
       
       const w = await createWorker('ara+eng', 1, { 
-        // تثبيت مصدر الملفات لـ CDN لمنع مشكلات الـ Path
         langPath: 'https://unpkg.com/tesseract.js-lang@5/tessdata',
         logger: m => {
           if (m?.progress != null) setProgress(m.progress*100);
         }
       });
       
-      // إعدادات تساعد في قراءة القوائم (تم التأكد من صحتها)
       await w.setParameters({
           tessedit_pageseg_mode: "6", // P_L_SINGLE_BLOCK
           preserve_interword_spaces: "1",
@@ -298,7 +290,6 @@
 
   function loadScript(src){
     return new Promise((resolve,reject)=>{
-      // تجنب التحميل المكرر
       if ([...document.scripts].some(s => s.src === src)) return resolve(); 
       const s = document.createElement('script');
       s.src = src;
@@ -319,6 +310,7 @@
       });
   }
   
+  // وظيفة عرض المعاينة (ضرورية)
   function drawPreviewFromImage(img){
     const ctx = previewCanvas.getContext('2d');
     const maxW = previewCanvas.clientWidth || 600;
@@ -339,34 +331,27 @@
       return canvas;
   }
   
-  // هذه الدالة اختيارية ويمكن تفعيلها إذا فشل OCR بالرغم من كل شيء
-  // function preprocessCanvas(canvas) { ... } 
-  
   function clearPreview(){
     const ctx = previewCanvas.getContext('2d');
     ctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
     setProgress(0);
   }
 
+// الوظيفة التي تمثل قلب المشكلة وتم تصحيحها لضمان التوزيع والعرض
 async function runOCRFromFile(file){
     try{
       setProgress(0);
       
       const img = await fileToImage(file);
-      drawPreviewFromImage(img); // عرض المعاينة
+      drawPreviewFromImage(img); // 💡 المعاينة تتم هنا
 
-      // تحويل الصورة إلى Canvas (مهم لعملية Tesseract)
       let canvasToProcess = imageToCanvas(img);
-      // إذا كانت الصور التي تستخدمها منخفضة الجودة (ألوان سيئة، تباين ضعيف)، 
-      // يمكن تفعيل دالة المعالجة المسبقة هنا:
-      // canvasToProcess = preprocessCanvas(canvasToProcess); 
       
       const w = await ensureWorker();
       
       const { data } = await w.recognize(canvasToProcess);
       
       const raw = (data?.text || '').trim();
-      
       const cleaned = raw.replace(/\s+\|\s+/g,' | ');
 
       const pairs = parsePairs(cleaned);
@@ -377,18 +362,17 @@ async function runOCRFromFile(file){
         textInput.value = cleaned;
         return;
       }
-      // إظهار النتائج في صندوق النص
+      
       textInput.value = pairs.map(p=>`${p.name} | ${p.code}`).join('\n');
       
-      // دمج وتوزيع الوحدات على الجدول
+      // 💡 التوزيع يتم هنا
       pairs.forEach(upsertRow);
-      renderRows();
+      renderRows(); 
       
       setProgress(100);
 
     }catch(e){
       console.error(e);
-      // رسالة الخطأ الآن أوضح لتشمل مشكلات الـ CDN
       alert('تعذر استخراج النص. قد يكون اتصال CDN غير مستقر أو الصورة غير واضحة. استخدم الاستيراد بالنص.');
       setProgress(0);
     }
@@ -477,3 +461,12 @@ async function runOCRFromFile(file){
     textInput.value = '';
     receiverName.value = '';
     receiverCode.value = '';
+    deputyName.value = '';
+    deputyCode.value = '';
+    setProgress(0);
+  });
+
+  // Initial render
+  renderRows();
+  setProgress(0);
+})();
