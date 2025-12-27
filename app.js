@@ -35,7 +35,7 @@
   const mState = $('mState');
 
   const LOCS = ['لوس','ساندي','بوليتو'];
-  // 💡 تم التوحيد هنا: استخدام 'خارج الخدمة'
+  // توحيد اسم الحالة
   const STATES = ['في الميدان','مشغول - اختبار','مشغول - تدريب','خارج الخدمة'];
 
   let rows = []; // {id,name,code,loc,state}
@@ -61,16 +61,16 @@
       .replace(/\d+/g,' ')
       .replace(/\s+/g,' ')
       .trim();
-    // keep arabic letters and spaces
+    // إبقاء الحروف العربية والمسافات
     const only = t.replace(/[^\u0600-\u06FF\s]/g,' ').replace(/\s+/g,' ').trim();
     return only || t;
   }
 
-  // 💡 تم تحديث هذه الدالة لدعم الأكواد الرقمية (115, 311) والأكواد الحرفية (DA1)
+  // دالة قوية لاستخراج أفضل كود (رقمي أو حرفي) من أي نص
   function bestCodeFromString(text){
     const s = (text||'').toString().toUpperCase().replace(/\s+/g,'');
     
-    // 1. مطابقة الأكواد الحرفية القياسية (DA1, N8, etc.)
+    // 1. مطابقة الأكواد الحرفية القياسية (DA1, N8, C-10)
     const mAlpha = s.match(/\b(DS|DA|AD|D|N|C|T|V|A)-?\d{1,3}\b/);
     if (mAlpha) return mAlpha[0].replace('-', '');
     
@@ -94,16 +94,17 @@
         code = bestCodeFromString(parts[1]) || sanitizeCode(parts[1]); 
       } 
       
-      // المحاولة الثانية: استخراج الكود من السطر كاملاً (للحالات التي لا يوجد فيها فاصل)
+      // المحاولة الثانية: استخراج الكود من السطر كاملاً (مهم للتوزيع التلقائي)
       if (!code) {
         code = bestCodeFromString(ln); 
       }
       
       // إذا وجدنا الكود، نحذف الكود من السطر ليبقى الاسم
       if (code) {
+        // نستخدم RegExp لضمان حذف الكود حتى لو كان ملتصقاً
         name = sanitizeArabicName(ln.replace(new RegExp(code, 'i'), ' '));
       } else {
-        continue; 
+        continue; // تجاهل السطر إذا لم نجد كوداً ذا معنى
       }
       
       // تنظيف الاسم مرة أخرى
@@ -129,7 +130,7 @@
         name, 
         code, 
         loc: LOCS.includes(r.loc)? r.loc:'لوس', 
-        state: STATES.includes(r.state)? r.state:'في الميدان' // تم التوحيد
+        state: STATES.includes(r.state)? r.state:'في الميدان' 
     };
     
     if (idx>=0) rows[idx] = { ...rows[idx], ...item };
@@ -159,7 +160,7 @@
     let cls = 'field';
     if (s === 'مشغول - اختبار') cls = 'busy1';
     else if (s === 'مشغول - تدريب') cls = 'busy2';
-    else if (s === 'خارج الخدمة') cls = 'out'; // تم التوحيد
+    else if (s === 'خارج الخدمة') cls = 'out';
     return `<span class="pill ${cls}">${s}</span>`;
   }
 
@@ -274,7 +275,8 @@
       const { createWorker } = window.Tesseract || {};
       if (!createWorker) throw new Error('Tesseract not loaded');
       
-      // 💡 إصلاح شريط التقدم: تمرير دالة logger بشكل صحيح
+      // إصلاح شريط التقدم: تمرير دالة logger بشكل صحيح
+      // 💡 استخدام 'ara+eng' لضمان دعم اللغتين
       const w = await createWorker('ara+eng', 1, { 
         langPath: 'https://unpkg.com/tesseract.js-lang@5/tessdata',
         logger: m => {
@@ -282,7 +284,7 @@
         }
       });
       
-      // 💡 إعدادات OCR محسنة للقوائم (تضبط قبل recognize)
+      // إعدادات OCR محسنة للقوائم
       await w.setParameters({
           tessedit_pageseg_mode: "6", // P_L_SINGLE_BLOCK
           preserve_interword_spaces: "1",
@@ -334,14 +336,13 @@
 
 async function runOCRFromFile(file){
     try{
-      setProgress(0);
+      setProgress(0); // البدء من 0%
       
       const img = await fileToImage(file);
       drawPreviewFromImage(img); 
 
       const w = await ensureWorker();
       
-      // 💡 يتم تشغيل التعرف الآن بعد إعداد worker و progress
       const { data } = await w.recognize(img); 
       
       const raw = (data?.text || '').trim();
@@ -363,7 +364,7 @@ async function runOCRFromFile(file){
       pairs.forEach(upsertRow);
       renderRows(); 
       
-      setProgress(100);
+      setProgress(100); // إظهار اكتمال العملية
 
     }catch(e){
       console.error(e);
