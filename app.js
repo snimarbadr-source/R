@@ -35,7 +35,6 @@
   const mState = $('mState');
 
   const LOCS = ['لوس','ساندي','بوليتو'];
-  // تم التثبيت: من "خارج الميدان" إلى "خارج الخدمة"
   const STATES = ['في الميدان','مشغول - اختبار','مشغول - تدريب','خارج الخدمة'];
 
   let rows = []; // {id,name,code,loc,state}
@@ -277,13 +276,20 @@
       await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
       const { createWorker } = window.Tesseract || {};
       if (!createWorker) throw new Error('Tesseract not loaded');
-      const w = await createWorker('ara+eng', 1, { logger: m => {
-        if (m?.progress != null) setProgress(m.progress*100);
-      }});
-      // إعدادات تساعد في قراءة القوائم
+      
+      const w = await createWorker('ara+eng', 1, { 
+        // تثبيت مصدر الملفات لـ CDN لمنع مشكلات الـ Path
+        langPath: 'https://unpkg.com/tesseract.js-lang@5/tessdata',
+        logger: m => {
+          if (m?.progress != null) setProgress(m.progress*100);
+        }
+      });
+      
+      // إعدادات تساعد في قراءة القوائم (تم التأكد من صحتها)
       await w.setParameters({
-          tessedit_pageseg_mode: "6", // assume block of text
-          preserve_interword_spaces: "1"
+          tessedit_pageseg_mode: "6", // P_L_SINGLE_BLOCK
+          preserve_interword_spaces: "1",
+          tessedit_char_blacklist: '[]{}()', // حظر بعض الرموز المزعجة
       });
       return w;
     })();
@@ -323,7 +329,18 @@
     ctx.clearRect(0,0,previewCanvas.width,previewCanvas.height);
     ctx.drawImage(img,0,0,previewCanvas.width,previewCanvas.height);
   }
-
+  
+  function imageToCanvas(img) {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return canvas;
+  }
+  
+  // هذه الدالة اختيارية ويمكن تفعيلها إذا فشل OCR بالرغم من كل شيء
+  // function preprocessCanvas(canvas) { ... } 
   
   function clearPreview(){
     const ctx = previewCanvas.getContext('2d');
@@ -338,17 +355,24 @@ async function runOCRFromFile(file){
       const img = await fileToImage(file);
       drawPreviewFromImage(img); // عرض المعاينة
 
+      // تحويل الصورة إلى Canvas (مهم لعملية Tesseract)
+      let canvasToProcess = imageToCanvas(img);
+      // إذا كانت الصور التي تستخدمها منخفضة الجودة (ألوان سيئة، تباين ضعيف)، 
+      // يمكن تفعيل دالة المعالجة المسبقة هنا:
+      // canvasToProcess = preprocessCanvas(canvasToProcess); 
+      
       const w = await ensureWorker();
       
-      const { data } = await w.recognize(img);
+      const { data } = await w.recognize(canvasToProcess);
+      
       const raw = (data?.text || '').trim();
       
-      const cleaned = raw.replace(/\s+\|\s+/g,' | '); // تنظيف بسيط
+      const cleaned = raw.replace(/\s+\|\s+/g,' | ');
 
       const pairs = parsePairs(cleaned);
 
       if (!pairs.length){
-        alert('لم يتم استخراج أسماء/أكواد بشكل كافٍ. جرّب صورة أقرب للقائمة أو استخدم الاستيراد بالنص.');
+        alert('لم يتم استخراج أسماء/أكواد بشكل كافٍ. قد تكون الصورة غير واضحة. استخدم الاستيراد بالنص.');
         setProgress(0);
         textInput.value = cleaned;
         return;
@@ -364,7 +388,8 @@ async function runOCRFromFile(file){
 
     }catch(e){
       console.error(e);
-      alert('تعذر استخراج النص (قد يكون اتصال CDN أو صورة غير واضحة). استخدم الاستيراد بالنص.');
+      // رسالة الخطأ الآن أوضح لتشمل مشكلات الـ CDN
+      alert('تعذر استخراج النص. قد يكون اتصال CDN غير مستقر أو الصورة غير واضحة. استخدم الاستيراد بالنص.');
       setProgress(0);
     }
   }
@@ -434,7 +459,6 @@ async function runOCRFromFile(file){
     const row = rows.find(r=>r.id===id);
     if (!row) return;
     if (act==='loc') row.loc = LOCS.includes(el.value)? el.value : 'لوس';
-    // تثبيت الحالة الافتراضية
     if (act==='state') row.state = STATES.includes(el.value)? el.value : 'في الميدان';
     renderRows();
   });
@@ -453,12 +477,3 @@ async function runOCRFromFile(file){
     textInput.value = '';
     receiverName.value = '';
     receiverCode.value = '';
-    deputyName.value = '';
-    deputyCode.value = '';
-    setProgress(0);
-  });
-
-  // Initial render
-  renderRows();
-  setProgress(0);
-})();
